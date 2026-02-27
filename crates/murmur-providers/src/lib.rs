@@ -1,10 +1,12 @@
 //! Murmur Providers — LLM provider abstraction with failover support.
 
 mod anthropic;
+mod codestral;
 mod ollama;
 mod router;
 
 pub use anthropic::AnthropicProvider;
+pub use codestral::CodestralProvider;
 pub use ollama::OllamaProvider;
 pub use router::{ProviderRouter, RouteDecision};
 

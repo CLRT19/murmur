@@ -1,7 +1,7 @@
-use murmur_providers::{
-    AnthropicProvider, OllamaProvider, Provider, ProviderRouter, RouteDecision,
-};
 use murmur_protocol::*;
+use murmur_providers::{
+    AnthropicProvider, CodestralProvider, OllamaProvider, Provider, ProviderRouter, RouteDecision,
+};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -20,6 +20,7 @@ pub struct RequestHandler {
 /// Holds initialized provider instances.
 struct Providers {
     anthropic: Option<AnthropicProvider>,
+    codestral: Option<CodestralProvider>,
     ollama: Option<OllamaProvider>,
 }
 
@@ -40,6 +41,21 @@ impl Providers {
                 }
             });
 
+        let codestral = config
+            .providers
+            .get("codestral")
+            .filter(|c| c.enabled)
+            .and_then(|c| match CodestralProvider::new(c) {
+                Ok(p) => {
+                    info!("Codestral provider initialized");
+                    Some(p)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to initialize Codestral provider");
+                    None
+                }
+            });
+
         let ollama = config
             .providers
             .get("ollama")
@@ -55,34 +71,56 @@ impl Providers {
                 }
             });
 
-        Self { anthropic, ollama }
+        Self {
+            anthropic,
+            codestral,
+            ollama,
+        }
     }
 
-    /// Get a provider for the given route decision, with fallback.
-    fn get(&self, decision: &RouteDecision) -> Option<&dyn Provider> {
+    /// Get an ordered list of providers to try for the given route decision.
+    /// Returns primary first, then fallbacks. Enables automatic failover.
+    fn get_chain(&self, decision: &RouteDecision) -> Vec<&dyn Provider> {
+        let mut chain: Vec<&dyn Provider> = Vec::new();
         match decision {
-            RouteDecision::Shell => self
-                .anthropic
-                .as_ref()
-                .map(|p| p as &dyn Provider)
-                .or(self.ollama.as_ref().map(|p| p as &dyn Provider)),
-            RouteDecision::Code => self
-                .anthropic
-                .as_ref()
-                .map(|p| p as &dyn Provider)
-                .or(self.ollama.as_ref().map(|p| p as &dyn Provider)),
-            RouteDecision::Local => self
-                .ollama
-                .as_ref()
-                .map(|p| p as &dyn Provider)
-                .or(self.anthropic.as_ref().map(|p| p as &dyn Provider)),
+            RouteDecision::Shell => {
+                if let Some(ref p) = self.anthropic {
+                    chain.push(p);
+                }
+                if let Some(ref p) = self.ollama {
+                    chain.push(p);
+                }
+            }
+            RouteDecision::Code => {
+                if let Some(ref p) = self.codestral {
+                    chain.push(p);
+                }
+                if let Some(ref p) = self.anthropic {
+                    chain.push(p);
+                }
+                if let Some(ref p) = self.ollama {
+                    chain.push(p);
+                }
+            }
+            RouteDecision::Local => {
+                if let Some(ref p) = self.ollama {
+                    chain.push(p);
+                }
+                if let Some(ref p) = self.anthropic {
+                    chain.push(p);
+                }
+            }
         }
+        chain
     }
 
     fn names(&self) -> Vec<&str> {
         let mut names = vec![];
         if self.anthropic.is_some() {
             names.push("anthropic");
+        }
+        if self.codestral.is_some() {
+            names.push("codestral");
         }
         if self.ollama.is_some() {
             names.push("ollama");
@@ -161,33 +199,49 @@ impl RequestHandler {
             murmur_context::collect_context(&params.cwd, shell, self.config.context.history_lines)
                 .await;
 
-        // Route to provider and get completions
+        // Route to provider chain and try with failover
         let decision = ProviderRouter::route(&params, &context);
-        debug!(route = ?decision, input = %params.input, "Provider routing decision");
+        let chain = self.providers.get_chain(&decision);
+        debug!(route = ?decision, chain_len = chain.len(), input = %params.input, "Provider routing decision");
 
-        let (items, provider_name) = match self.providers.get(&decision) {
-            Some(provider) => {
-                debug!(provider = provider.name(), "Calling provider");
+        let (items, provider_name) = if chain.is_empty() {
+            debug!("No providers configured, returning empty completions");
+            (vec![], "none".to_string())
+        } else {
+            let mut result_items = vec![];
+            let mut result_provider = "none".to_string();
+
+            for (i, provider) in chain.iter().enumerate() {
+                let is_fallback = i > 0;
+                if is_fallback {
+                    debug!(provider = provider.name(), "Trying fallback provider");
+                }
+
                 match provider.complete(&params, &context).await {
                     Ok(items) => {
                         info!(
                             provider = provider.name(),
                             count = items.len(),
                             latency_ms = start.elapsed().as_millis() as u64,
+                            fallback = is_fallback,
                             "Completions received"
                         );
-                        (items, provider.name().to_string())
+                        result_items = items;
+                        result_provider = provider.name().to_string();
+                        break;
                     }
                     Err(e) => {
-                        warn!(provider = provider.name(), error = %e, "Provider failed");
-                        (vec![], "none".to_string())
+                        warn!(
+                            provider = provider.name(),
+                            error = %e,
+                            remaining = chain.len() - i - 1,
+                            "Provider failed, trying next"
+                        );
                     }
                 }
             }
-            None => {
-                debug!("No providers configured, returning empty completions");
-                (vec![], "none".to_string())
-            }
+
+            (result_items, result_provider)
         };
 
         let response = CompletionResponse {

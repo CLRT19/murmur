@@ -50,12 +50,26 @@ impl OllamaProvider {
             "You are a shell command autocomplete engine.\n\
              Shell: {}\n\
              CWD: {}\n\
-             Partial command: `{}`\n\n\
-             Suggest up to 5 completions as a JSON array of objects with \"text\" and \"description\" fields.\n\
-             Respond ONLY with the JSON array, no other text.",
+             Partial command: `{}`\n",
             request.shell.as_deref().unwrap_or("unknown"),
             request.cwd,
             request.input,
+        );
+
+        if let Some(ref git) = context.git {
+            prompt.push_str(&format!(
+                "Git branch: {}, dirty: {}\n",
+                git.branch, git.dirty
+            ));
+        }
+
+        if let Some(ref project) = context.project {
+            prompt.push_str(&format!("Project: {project:?}\n"));
+        }
+
+        prompt.push_str(
+            "\nSuggest up to 5 completions as a JSON array of objects with \"text\" and \"description\" fields.\n\
+             Respond ONLY with the JSON array, no other text.",
         );
 
         if !context.history.is_empty() {

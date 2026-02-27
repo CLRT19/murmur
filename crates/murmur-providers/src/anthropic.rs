@@ -67,46 +67,69 @@ impl AnthropicProvider {
     fn build_system_prompt(&self, context: &ShellContext) -> String {
         let mut prompt = String::from(
             "You are a shell command autocomplete engine. Given the user's partial command \
-             and context, suggest completions. Respond ONLY with a JSON array of objects, \
-             each with \"text\" (the completion) and \"description\" (brief explanation). \
-             Order by relevance. Maximum 5 suggestions.",
+             and context, suggest the most likely completions.\n\n\
+             Rules:\n\
+             - Respond ONLY with a JSON array of objects\n\
+             - Each object has \"text\" (the full command) and \"description\" (brief explanation)\n\
+             - Order by relevance. Maximum 5 suggestions\n\
+             - Prefer commands the user has used before (from history)\n\
+             - Be context-aware: use git branch names, project type, and CWD\n\
+             - For git commands: suggest real branch names and recent commit hashes when relevant\n\
+             - Never suggest dangerous commands (rm -rf /, :(){:|:&};:) unless clearly intended\n\n\
+             Examples:\n\
+             Input: `git c` → [{\"text\":\"git commit -m \\\"\\\"\",\"description\":\"Commit staged changes\"},{\"text\":\"git checkout\",\"description\":\"Switch branches\"}]\n\
+             Input: `cargo t` → [{\"text\":\"cargo test\",\"description\":\"Run tests\"},{\"text\":\"cargo test --release\",\"description\":\"Run tests in release mode\"}]\n\
+             Input: `docker` → [{\"text\":\"docker ps\",\"description\":\"List running containers\"},{\"text\":\"docker compose up\",\"description\":\"Start services\"}]",
         );
 
+        // Git context with actionable details
         if let Some(ref git) = context.git {
             prompt.push_str(&format!(
-                "\n\nGit context: branch={}, dirty={}",
+                "\n\nGit context:\n  Branch: {}\n  Dirty: {}",
                 git.branch, git.dirty
             ));
+            if !git.recent_commits.is_empty() {
+                prompt.push_str("\n  Recent commits:");
+                for commit in &git.recent_commits {
+                    prompt.push_str(&format!("\n    {commit}"));
+                }
+            }
         }
 
         if let Some(ref project) = context.project {
             prompt.push_str(&format!("\nProject type: {project:?}"));
         }
 
-        if !context.env_vars.is_empty() {
-            let vars: Vec<String> = context
-                .env_vars
-                .iter()
-                .map(|(k, v)| format!("{k}={v}"))
-                .collect();
-            prompt.push_str(&format!("\nEnvironment: {}", vars.join(", ")));
+        // Only include useful env vars
+        let useful_vars: Vec<String> = context
+            .env_vars
+            .iter()
+            .filter(|(k, _)| {
+                matches!(
+                    k.as_str(),
+                    "EDITOR" | "VIRTUAL_ENV" | "NODE_ENV" | "GOPATH" | "RUSTUP_HOME"
+                )
+            })
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        if !useful_vars.is_empty() {
+            prompt.push_str(&format!("\nEnvironment: {}", useful_vars.join(", ")));
         }
 
         prompt
     }
 
     fn build_user_prompt(&self, request: &CompletionRequest, context: &ShellContext) -> String {
+        let shell = request.shell.as_deref().unwrap_or("unknown");
         let mut prompt = format!(
-            "Shell: {}\nCWD: {}\nPartial command: `{}`",
-            request.shell.as_deref().unwrap_or("unknown"),
-            request.cwd,
-            request.input,
+            "Shell: {shell}\nCWD: {}\nPartial command: `{}`",
+            request.cwd, request.input,
         );
 
         if !context.history.is_empty() {
-            let recent: Vec<&String> = context.history.iter().rev().take(10).collect();
-            prompt.push_str("\n\nRecent history:\n");
-            for cmd in recent.iter().rev() {
+            let recent: Vec<&String> = context.history.iter().rev().take(15).collect();
+            prompt.push_str("\n\nRecent history (most recent first):\n");
+            for cmd in &recent {
                 prompt.push_str(&format!("  {cmd}\n"));
             }
         }
