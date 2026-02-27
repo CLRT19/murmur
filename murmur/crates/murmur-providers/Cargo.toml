@@ -1,0 +1,18 @@
+[package]
+name = "murmur-providers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "LLM provider abstraction for Murmur (Anthropic, Codestral, Ollama)"
+
+[dependencies]
+murmur-protocol = { path = "../murmur-protocol" }
+murmur-context = { path = "../murmur-context" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+async-trait = "0.1"

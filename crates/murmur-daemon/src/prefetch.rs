@@ -17,59 +17,98 @@ impl PrefetchRules {
         let mut rules = HashMap::new();
 
         // Git commands
-        rules.insert("git", vec![
-            "git commit", "git checkout", "git push", "git pull", "git status",
-            "git diff", "git log", "git branch", "git stash", "git merge",
-            "git rebase", "git add", "git reset",
-        ]);
-        rules.insert("git c", vec![
-            "git commit", "git checkout", "git cherry-pick", "git clone",
-        ]);
-        rules.insert("git s", vec![
-            "git status", "git stash", "git show",
-        ]);
-        rules.insert("git p", vec![
-            "git push", "git pull",
-        ]);
-        rules.insert("git b", vec![
-            "git branch", "git bisect",
-        ]);
+        rules.insert(
+            "git",
+            vec![
+                "git commit",
+                "git checkout",
+                "git push",
+                "git pull",
+                "git status",
+                "git diff",
+                "git log",
+                "git branch",
+                "git stash",
+                "git merge",
+                "git rebase",
+                "git add",
+                "git reset",
+            ],
+        );
+        rules.insert(
+            "git c",
+            vec!["git commit", "git checkout", "git cherry-pick", "git clone"],
+        );
+        rules.insert("git s", vec!["git status", "git stash", "git show"]);
+        rules.insert("git p", vec!["git push", "git pull"]);
+        rules.insert("git b", vec!["git branch", "git bisect"]);
 
         // Cargo commands
-        rules.insert("cargo", vec![
-            "cargo build", "cargo test", "cargo run", "cargo clippy",
-            "cargo fmt", "cargo check", "cargo bench",
-        ]);
-        rules.insert("cargo t", vec![
-            "cargo test", "cargo tree",
-        ]);
-        rules.insert("cargo b", vec![
-            "cargo build", "cargo bench",
-        ]);
+        rules.insert(
+            "cargo",
+            vec![
+                "cargo build",
+                "cargo test",
+                "cargo run",
+                "cargo clippy",
+                "cargo fmt",
+                "cargo check",
+                "cargo bench",
+            ],
+        );
+        rules.insert("cargo t", vec!["cargo test", "cargo tree"]);
+        rules.insert("cargo b", vec!["cargo build", "cargo bench"]);
 
         // npm commands
-        rules.insert("npm", vec![
-            "npm install", "npm run", "npm test", "npm start",
-            "npm build", "npm publish",
-        ]);
-        rules.insert("npm r", vec![
-            "npm run", "npm run dev", "npm run build", "npm run test",
-        ]);
+        rules.insert(
+            "npm",
+            vec![
+                "npm install",
+                "npm run",
+                "npm test",
+                "npm start",
+                "npm build",
+                "npm publish",
+            ],
+        );
+        rules.insert(
+            "npm r",
+            vec!["npm run", "npm run dev", "npm run build", "npm run test"],
+        );
 
         // Docker commands
-        rules.insert("docker", vec![
-            "docker ps", "docker compose", "docker build", "docker run",
-            "docker images", "docker logs",
-        ]);
-        rules.insert("docker c", vec![
-            "docker compose up", "docker compose down", "docker compose logs",
-        ]);
+        rules.insert(
+            "docker",
+            vec![
+                "docker ps",
+                "docker compose",
+                "docker build",
+                "docker run",
+                "docker images",
+                "docker logs",
+            ],
+        );
+        rules.insert(
+            "docker c",
+            vec![
+                "docker compose up",
+                "docker compose down",
+                "docker compose logs",
+            ],
+        );
 
         // kubectl
-        rules.insert("kubectl", vec![
-            "kubectl get", "kubectl describe", "kubectl apply", "kubectl logs",
-            "kubectl delete", "kubectl exec",
-        ]);
+        rules.insert(
+            "kubectl",
+            vec![
+                "kubectl get",
+                "kubectl describe",
+                "kubectl apply",
+                "kubectl logs",
+                "kubectl delete",
+                "kubectl exec",
+            ],
+        );
 
         Self { rules }
     }

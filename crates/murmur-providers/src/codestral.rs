@@ -69,7 +69,11 @@ impl CodestralProvider {
     /// Build FIM prompt from command context.
     /// For shell commands, the "prefix" is what the user typed and the "suffix" is empty.
     /// For code-like inputs, we can provide surrounding context.
-    fn build_prompt(&self, request: &CompletionRequest, context: &ShellContext) -> (String, String) {
+    fn build_prompt(
+        &self,
+        request: &CompletionRequest,
+        context: &ShellContext,
+    ) -> (String, String) {
         let shell = request.shell.as_deref().unwrap_or("bash");
         let mut prefix = String::new();
 
