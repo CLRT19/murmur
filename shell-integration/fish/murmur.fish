@@ -50,8 +50,10 @@ finally:
     end
 end
 
-function _murmur_complete
+function _murmur_trigger
     if not _murmur_is_running
+        echo "[murmur] daemon not running — start with: murmur start"
+        commandline -f repaint
         return
     end
 
@@ -76,23 +78,25 @@ function _murmur_complete
         return
     end
 
-    echo $response | python3 -c "
+    # Parse completions and insert the first one
+    set -l completion (echo $response | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    if 'error' in data and data['error']:
-        pass
-    elif 'result' in data and 'items' in data['result']:
-        for item in data['result']['items']:
-            desc = item.get('description', '')
-            if desc:
-                print(f\"{item['text']}\t{desc}\")
-            else:
-                print(item['text'])
+    if 'result' in data and 'items' in data['result']:
+        items = data['result']['items']
+        if items:
+            print(items[0]['text'])
 except:
     pass
-" 2>/dev/null
+" 2>/dev/null)
+
+    if test -n "$completion"
+        commandline -r -- $completion
+        commandline -C (string length "$completion")
+    end
 end
 
-# Register completion provider
-complete -c '*' -f -a '(_murmur_complete)'
+# Bind to Option+Tab (Alt+Tab) — dedicated AI completion key
+# Does not conflict with Tab (normal shell completion) or Ctrl+Space (macOS input switch)
+bind \e\t _murmur_trigger

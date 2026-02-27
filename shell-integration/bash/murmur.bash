@@ -49,13 +49,15 @@ finally:
     fi
 }
 
-_murmur_complete() {
+_murmur_trigger() {
     if ! _murmur_is_running; then
+        echo ""
+        echo "[murmur] daemon not running — start with: murmur start"
         return
     fi
 
-    local input="${COMP_LINE}"
-    local cursor="${COMP_POINT}"
+    local input="$READLINE_LINE"
+    local cursor="$READLINE_POINT"
     local cwd="$PWD"
 
     # Skip empty input
@@ -78,14 +80,13 @@ _murmur_complete() {
         return
     fi
 
+    # Parse completions from JSON response
     local completions
     completions=$(echo "$response" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    if 'error' in data and data['error']:
-        pass
-    elif 'result' in data and 'items' in data['result']:
+    if 'result' in data and 'items' in data['result']:
         for item in data['result']['items']:
             desc = item.get('description', '')
             if desc:
@@ -96,14 +97,31 @@ except:
     pass
 " 2>/dev/null)
 
-    if [[ -n "$completions" ]]; then
-        local -a items
-        while IFS= read -r line; do
-            items+=("$line")
-        done <<< "$completions"
-        COMPREPLY=("${items[@]}")
+    if [[ -z "$completions" ]]; then
+        return
+    fi
+
+    local -a items
+    while IFS= read -r line; do
+        items+=("$line")
+    done <<< "$completions"
+
+    if (( ${#items[@]} == 1 )); then
+        # Single completion — insert directly
+        local text="${items[0]%%	*}"
+        READLINE_LINE="$text"
+        READLINE_POINT=${#READLINE_LINE}
+    elif (( ${#items[@]} > 1 )); then
+        # Multiple completions — display them
+        echo ""
+        printf '%s\n' "${items[@]}"
+        # Insert the first one
+        local text="${items[0]%%	*}"
+        READLINE_LINE="$text"
+        READLINE_POINT=${#READLINE_LINE}
     fi
 }
 
-# Register as default completion
-complete -D -F _murmur_complete
+# Bind to Option+Tab (Alt+Tab) — dedicated AI completion key
+# Does not conflict with Tab (normal shell completion) or Ctrl+Space (macOS input switch)
+bind -x '"\e\t": _murmur_trigger'

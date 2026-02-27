@@ -86,7 +86,7 @@ cp config.example.toml ~/.config/murmur/config.toml
 # Edit the file and set your API key
 ```
 
-4. **Start typing** — press Tab for AI-powered suggestions.
+4. **Start typing** — press **Option+Tab** for AI-powered suggestions.
 
 5. **Voice input** (optional):
 

@@ -66,8 +66,7 @@ typeset -g _MURMUR_LAST_INPUT=""
 # ZLE widget: AI-powered completion
 _murmur_complete() {
     if ! _murmur_is_running; then
-        # Fall back to default completion
-        zle expand-or-complete
+        zle -M "[murmur] daemon not running — start with: murmur start"
         return
     fi
 
@@ -77,7 +76,6 @@ _murmur_complete() {
 
     # Skip if input is empty or only whitespace
     if [[ -z "${input// /}" ]]; then
-        zle expand-or-complete
         return
     fi
 
@@ -94,7 +92,6 @@ _murmur_complete() {
     response=$(_murmur_request "complete" "$params")
 
     if [[ -z "$response" ]]; then
-        zle expand-or-complete
         return
     fi
 
@@ -115,7 +112,6 @@ except:
 " 2>/dev/null)
 
     if [[ -z "$completions" ]]; then
-        zle expand-or-complete
         return
     fi
 
@@ -127,7 +123,6 @@ except:
     done <<< "$completions"
 
     if (( ${#items[@]} == 0 )); then
-        zle expand-or-complete
         return
     fi
 
@@ -145,8 +140,6 @@ except:
 # Register the ZLE widget
 zle -N _murmur_complete
 
-# Bind to Tab (keeping original as fallback)
-bindkey '^I' _murmur_complete
-
-# Optional: Bind AI completion to Ctrl+Space (uncomment to enable)
-# bindkey '^ ' _murmur_complete
+# Bind to Option+Tab (Alt+Tab) — dedicated AI completion key
+# Does not conflict with Tab (normal shell completion) or Ctrl+Space (macOS input switch)
+bindkey '\e\t' _murmur_complete
