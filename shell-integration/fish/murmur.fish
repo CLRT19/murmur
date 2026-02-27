@@ -8,6 +8,18 @@ function _murmur_is_running
     test -S $MURMUR_SOCKET
 end
 
+# Portable timeout wrapper (macOS may not have GNU timeout)
+function _murmur_timeout
+    if command -v timeout &>/dev/null
+        timeout $argv
+    else if command -v gtimeout &>/dev/null
+        gtimeout $argv
+    else
+        # No timeout available — run without it
+        $argv[2..]
+    end
+end
+
 function _murmur_request
     set -l method $argv[1]
     set -l params $argv[2]
@@ -21,9 +33,9 @@ function _murmur_request
     end
 
     if command -v socat &>/dev/null
-        echo $request | timeout $MURMUR_TIMEOUT socat - UNIX-CONNECT:$MURMUR_SOCKET 2>/dev/null
+        echo $request | _murmur_timeout $MURMUR_TIMEOUT socat - UNIX-CONNECT:$MURMUR_SOCKET 2>/dev/null
     else if command -v nc &>/dev/null
-        echo $request | timeout $MURMUR_TIMEOUT nc -U $MURMUR_SOCKET 2>/dev/null
+        echo $request | _murmur_timeout $MURMUR_TIMEOUT nc -U $MURMUR_SOCKET 2>/dev/null
     else
         # Python3 fallback — pass request via env var to avoid injection
         set -x MURMUR_REQ $request

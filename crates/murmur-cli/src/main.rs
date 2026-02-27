@@ -133,12 +133,17 @@ async fn cmd_stop() -> Result<()> {
             // Fallback: kill via PID
             if let Ok(pid_str) = std::fs::read_to_string(Config::pid_path()) {
                 if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                    unsafe {
-                        libc::kill(pid, libc::SIGTERM);
+                    if pid > 0 {
+                        unsafe {
+                            libc::kill(pid, libc::SIGTERM);
+                        }
+                        let _ = std::fs::remove_file(Config::pid_path());
+                        let _ = std::fs::remove_file(&config.daemon.socket_path);
+                        println!("Murmur daemon stopped (via signal).");
+                    } else {
+                        println!("Invalid PID in PID file, cleaning up.");
+                        let _ = std::fs::remove_file(Config::pid_path());
                     }
-                    let _ = std::fs::remove_file(Config::pid_path());
-                    let _ = std::fs::remove_file(&config.daemon.socket_path);
-                    println!("Murmur daemon stopped (via signal).");
                 }
             }
         }
@@ -492,6 +497,10 @@ fn is_daemon_running() -> bool {
 
     if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
         if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            // Reject non-positive PIDs to avoid signaling process groups
+            if pid <= 0 {
+                return false;
+            }
             // Check if process is alive
             unsafe { libc::kill(pid, 0) == 0 }
         } else {

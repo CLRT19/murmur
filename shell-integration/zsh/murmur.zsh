@@ -15,6 +15,19 @@ _murmur_is_running() {
     [[ -S "$MURMUR_SOCKET" ]]
 }
 
+# Portable timeout wrapper (macOS may not have GNU timeout)
+_murmur_timeout() {
+    if command -v timeout &>/dev/null; then
+        timeout "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout "$@"
+    else
+        # No timeout available — run without it
+        shift  # Remove the timeout duration argument
+        "$@"
+    fi
+}
+
 # Send a JSON-RPC request to the daemon and get the response
 _murmur_request() {
     local method="$1"
@@ -30,9 +43,9 @@ _murmur_request() {
 
     # Send request via socat (preferred), nc, or python3 (fallback)
     if command -v socat &>/dev/null; then
-        echo "$request" | timeout "$MURMUR_TIMEOUT" socat - UNIX-CONNECT:"$MURMUR_SOCKET" 2>/dev/null
+        echo "$request" | _murmur_timeout "$MURMUR_TIMEOUT" socat - UNIX-CONNECT:"$MURMUR_SOCKET" 2>/dev/null
     elif command -v nc &>/dev/null; then
-        echo "$request" | timeout "$MURMUR_TIMEOUT" nc -U "$MURMUR_SOCKET" 2>/dev/null
+        echo "$request" | _murmur_timeout "$MURMUR_TIMEOUT" nc -U "$MURMUR_SOCKET" 2>/dev/null
     else
         # Python3 fallback — pass request via env var to avoid injection
         MURMUR_REQ="$request" MURMUR_SOCK="$MURMUR_SOCKET" MURMUR_TMO="$MURMUR_TIMEOUT" python3 -c "
