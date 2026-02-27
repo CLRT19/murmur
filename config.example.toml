@@ -13,8 +13,9 @@ enabled = true
 timeout_ms = 5000
 
 # [providers.codestral]
-# api_key = "your-codestral-key"
-# model = "codestral-2501"
+# api_key = "your-codestral-api-key"
+# model = "codestral-latest"   # Mistral's code-specialized FIM model
+# endpoint = "https://codestral.mistral.ai/v1/fim/completions"
 # enabled = true
 # timeout_ms = 5000
 

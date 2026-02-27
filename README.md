@@ -14,7 +14,7 @@ Murmur is a terminal productivity tool that brings AI-powered completions and vo
 - **Multi-LLM Routing** — Automatically picks the right model for the task (Codestral for code, Haiku for shell commands)
 - **Rich Context** — Uses shell history, git state, project type, environment variables, and man pages for better suggestions
 - **AI Tool Integration** — Native plugins for Claude Code and Codex CLI
-- **Fast** — Sub-200ms end-to-end latency with LRU caching and smart debouncing
+- **Fast** — Sub-200ms end-to-end latency with LRU caching, speculative pre-fetching, and smart debouncing
 - **Private** — On-device speech-to-text (Apple SpeechAnalyzer / Whisper), no audio leaves your machine
 
 ## Architecture
@@ -111,7 +111,8 @@ model = "claude-haiku-4-5-20251001"
 
 [providers.codestral]
 api_key = "..."
-model = "codestral-2501"
+model = "codestral-latest"
+endpoint = "https://codestral.mistral.ai/v1/fim/completions"
 enabled = true
 
 [providers.ollama]
@@ -177,7 +178,7 @@ murmur/
 ## Roadmap
 
 - [x] Phase 1: Foundation + MVP autocomplete (zsh + Claude Haiku)
-- [ ] Phase 2: Multi-shell + multi-provider support
+- [x] Phase 2: Multi-provider with failover, Codestral, pre-fetching, improved routing
 - [ ] Phase 3: Voice input (Whisper + Apple SpeechAnalyzer)
 - [ ] Phase 4: Claude Code + Codex CLI integration
 - [ ] Phase 5: Polish + distribution (Homebrew, AUR)
