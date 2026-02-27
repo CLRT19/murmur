@@ -8,10 +8,12 @@
 //! - Audio utilities for WAV encoding
 
 mod apple;
+mod claude_cli;
 mod deepgram;
 mod restructure;
 
 pub use apple::AppleEngine;
+pub use claude_cli::ClaudeCliRestructurer;
 pub use deepgram::DeepgramEngine;
 pub use restructure::VoiceRestructurer;
 
@@ -88,11 +90,19 @@ impl Default for VoiceConfig {
     }
 }
 
+/// Wrapper enum for the two restructurer backends.
+pub enum Restructurer {
+    /// HTTP API-based restructurer (requires Anthropic API key).
+    Api(VoiceRestructurer),
+    /// Local Claude CLI-based restructurer (uses `claude -p`).
+    ClaudeCli(ClaudeCliRestructurer),
+}
+
 /// The main voice engine that coordinates capture, STT, and restructuring.
 pub struct VoiceEngine {
     config: VoiceConfig,
     engines: Vec<Box<dyn SttEngine>>,
-    restructurer: Option<VoiceRestructurer>,
+    restructurer: Option<Restructurer>,
 }
 
 impl VoiceEngine {
@@ -125,8 +135,8 @@ impl VoiceEngine {
         }
     }
 
-    /// Set the voice restructurer (needs an LLM endpoint to convert transcripts).
-    pub fn set_restructurer(&mut self, restructurer: VoiceRestructurer) {
+    /// Set the voice restructurer backend.
+    pub fn set_restructurer(&mut self, restructurer: Restructurer) {
         self.restructurer = Some(restructurer);
     }
 
@@ -181,8 +191,14 @@ impl VoiceEngine {
 
         // Restructure the transcript
         let output = match &self.restructurer {
-            Some(restructurer) => {
-                debug!(mode = ?mode, "Restructuring transcript");
+            Some(Restructurer::Api(restructurer)) => {
+                debug!(mode = ?mode, "Restructuring transcript via API");
+                restructurer
+                    .restructure(&stt_result.0.transcript, &mode, cwd, shell)
+                    .await?
+            }
+            Some(Restructurer::ClaudeCli(restructurer)) => {
+                debug!(mode = ?mode, "Restructuring transcript via claude CLI");
                 restructurer
                     .restructure(&stt_result.0.transcript, &mode, cwd, shell)
                     .await?

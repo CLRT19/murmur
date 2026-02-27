@@ -2,7 +2,7 @@ use murmur_protocol::*;
 use murmur_providers::{
     AnthropicProvider, CodestralProvider, OllamaProvider, Provider, ProviderRouter, RouteDecision,
 };
-use murmur_voice::VoiceEngine;
+use murmur_voice::{ClaudeCliRestructurer, Restructurer, VoiceEngine};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -152,16 +152,37 @@ impl RequestHandler {
         };
         let mut voice = VoiceEngine::new(voice_config);
 
-        // Set up voice restructurer using the Anthropic provider (if available)
-        if let Some(anthropic_config) = config.providers.get("anthropic").filter(|c| c.enabled) {
-            if let Some(ref api_key) = anthropic_config.api_key {
-                let restructurer = murmur_voice::VoiceRestructurer::new(
-                    api_key.clone(),
-                    anthropic_config.model.clone(),
-                    anthropic_config.endpoint.clone(),
+        // Set up voice restructurer based on config
+        match config.voice.restructurer.as_str() {
+            "claude-cli" => {
+                let restructurer = ClaudeCliRestructurer::new(None, None);
+                voice.set_restructurer(Restructurer::ClaudeCli(restructurer));
+                info!("Voice restructurer initialized with claude CLI backend");
+            }
+            "api" => {
+                if let Some(anthropic_config) =
+                    config.providers.get("anthropic").filter(|c| c.enabled)
+                {
+                    if let Some(ref api_key) = anthropic_config.api_key {
+                        let restructurer = murmur_voice::VoiceRestructurer::new(
+                            api_key.clone(),
+                            anthropic_config.model.clone(),
+                            anthropic_config.endpoint.clone(),
+                        );
+                        voice.set_restructurer(Restructurer::Api(restructurer));
+                        info!("Voice restructurer initialized with Anthropic API backend");
+                    } else {
+                        warn!("Voice restructurer set to 'api' but no Anthropic API key configured");
+                    }
+                } else {
+                    warn!("Voice restructurer set to 'api' but Anthropic provider not configured");
+                }
+            }
+            other => {
+                warn!(
+                    restructurer = other,
+                    "Unknown voice restructurer backend, no restructurer configured"
                 );
-                voice.set_restructurer(restructurer);
-                info!("Voice restructurer initialized with Anthropic provider");
             }
         }
 

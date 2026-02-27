@@ -42,6 +42,8 @@ pub struct VoiceConfig {
     pub capture_timeout_ms: u64,
     #[serde(default)]
     pub deepgram_api_key: Option<String>,
+    #[serde(default = "default_restructurer")]
+    pub restructurer: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,6 +92,10 @@ fn default_capture_timeout() -> u64 {
     30000
 }
 
+fn default_restructurer() -> String {
+    "claude-cli".to_string()
+}
+
 fn default_true() -> bool {
     true
 }
@@ -114,6 +120,7 @@ impl Default for VoiceConfig {
             confidence_threshold: default_confidence(),
             capture_timeout_ms: default_capture_timeout(),
             deepgram_api_key: None,
+            restructurer: default_restructurer(),
         }
     }
 }
