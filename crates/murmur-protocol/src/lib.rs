@@ -4,11 +4,13 @@
 //! used for communication between the shell plugin and the daemon.
 
 mod completion;
+mod context;
 mod error;
 mod jsonrpc;
 mod voice;
 
 pub use completion::*;
+pub use context::*;
 pub use error::*;
 pub use jsonrpc::*;
 pub use voice::*;

@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn};
 use crate::cache::CompletionCache;
 use crate::config::Config;
 use crate::handler::RequestHandler;
+use crate::history::CommandHistory;
 use crate::prefetch;
 
 /// The main daemon server.
@@ -21,7 +22,8 @@ impl Server {
     pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
         let cache = Arc::new(Mutex::new(CompletionCache::new(config.daemon.cache_size)));
-        let handler = Arc::new(RequestHandler::new(config.clone(), cache));
+        let history = Arc::new(Mutex::new(CommandHistory::new(1000)));
+        let handler = Arc::new(RequestHandler::new(config.clone(), cache, history));
 
         Self { config, handler }
     }

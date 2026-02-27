@@ -7,6 +7,7 @@ members = [
     "crates/murmur-voice",
     "crates/murmur-daemon",
     "crates/murmur-cli",
+    "integrations/codex/mcp-server",
 ]
 
 [workspace.package]

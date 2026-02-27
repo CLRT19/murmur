@@ -1,0 +1,20 @@
+[package]
+name = "murmur-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "MCP server exposing Murmur as tools for AI coding assistants"
+
+[[bin]]
+name = "murmur-mcp"
+path = "src/main.rs"
+
+[dependencies]
+murmur-protocol = { path = "../../../crates/murmur-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

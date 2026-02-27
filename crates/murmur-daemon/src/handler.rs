@@ -10,11 +10,13 @@ use tracing::{debug, info, warn};
 
 use crate::cache::CompletionCache;
 use crate::config::Config;
+use crate::history::CommandHistory;
 
 /// Handles incoming JSON-RPC requests.
 pub struct RequestHandler {
     config: Arc<Config>,
     cache: Arc<Mutex<CompletionCache>>,
+    history: Arc<Mutex<CommandHistory>>,
     providers: Providers,
     voice: VoiceEngine,
 }
@@ -132,7 +134,11 @@ impl Providers {
 }
 
 impl RequestHandler {
-    pub fn new(config: Arc<Config>, cache: Arc<Mutex<CompletionCache>>) -> Self {
+    pub fn new(
+        config: Arc<Config>,
+        cache: Arc<Mutex<CompletionCache>>,
+        history: Arc<Mutex<CommandHistory>>,
+    ) -> Self {
         let providers = Providers::from_config(&config);
 
         // Initialize voice engine
@@ -162,6 +168,7 @@ impl RequestHandler {
         Self {
             config,
             cache,
+            history,
             providers,
             voice,
         }
@@ -178,6 +185,8 @@ impl RequestHandler {
             methods::VOICE_START => self.handle_voice_start(request).await,
             methods::VOICE_PROCESS => self.handle_voice_process(request).await,
             methods::VOICE_STATUS => self.handle_voice_status(request).await,
+            methods::CONTEXT_UPDATE => self.handle_context_update(request).await,
+            methods::HISTORY_LIST => self.handle_history_list(request).await,
             _ => JsonRpcResponse::error(
                 METHOD_NOT_FOUND,
                 format!("Unknown method: {}", request.method),
@@ -292,10 +301,12 @@ impl RequestHandler {
 
     async fn handle_status(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         let cache_len = self.cache.lock().await.len();
+        let history_len = self.history.lock().await.len();
         let voice_status = self.voice.status();
         let status = serde_json::json!({
             "status": "running",
             "cache_entries": cache_len,
+            "history_entries": history_len,
             "voice_enabled": self.config.voice.enabled,
             "voice_engines": voice_status.available_engines,
             "voice_active_engine": voice_status.active_engine,
@@ -424,5 +435,67 @@ impl RequestHandler {
     async fn handle_voice_status(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         let status = self.voice.status();
         JsonRpcResponse::success(serde_json::to_value(&status).unwrap(), request.id)
+    }
+
+    async fn handle_context_update(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        let params: ContextUpdateRequest = match request.params {
+            Some(params) => match serde_json::from_value(params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return JsonRpcResponse::error(
+                        INVALID_PARAMS,
+                        format!("Invalid context/update params: {e}"),
+                        request.id,
+                    )
+                }
+            },
+            None => {
+                return JsonRpcResponse::error(
+                    INVALID_PARAMS,
+                    "Missing context/update params",
+                    request.id,
+                )
+            }
+        };
+
+        info!(
+            source = %params.source,
+            command = %params.command,
+            cwd = %params.cwd,
+            exit_code = params.exit_code,
+            "Recording cross-tool command"
+        );
+
+        {
+            let mut history = self.history.lock().await;
+            history.record(params.command, params.cwd, params.source, params.exit_code);
+        }
+
+        JsonRpcResponse::success(serde_json::json!({"recorded": true}), request.id)
+    }
+
+    async fn handle_history_list(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        let params: HistoryListRequest = match request.params {
+            Some(params) => match serde_json::from_value(params) {
+                Ok(p) => p,
+                Err(e) => {
+                    return JsonRpcResponse::error(
+                        INVALID_PARAMS,
+                        format!("Invalid history/list params: {e}"),
+                        request.id,
+                    )
+                }
+            },
+            None => HistoryListRequest {
+                cwd: None,
+                limit: 50,
+            },
+        };
+
+        let history = self.history.lock().await;
+        let entries = history.list(params.cwd.as_deref(), params.limit);
+        let entries: Vec<_> = entries.into_iter().cloned().collect();
+
+        JsonRpcResponse::success(serde_json::to_value(&entries).unwrap(), request.id)
     }
 }

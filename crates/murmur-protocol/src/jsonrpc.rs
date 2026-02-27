@@ -55,6 +55,7 @@ pub mod methods {
     pub const VOICE_STATUS: &str = "voice/status";
     pub const STATUS: &str = "status";
     pub const CONTEXT_UPDATE: &str = "context/update";
+    pub const HISTORY_LIST: &str = "history/list";
     pub const SHUTDOWN: &str = "shutdown";
 }
 
