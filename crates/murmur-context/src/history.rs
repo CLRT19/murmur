@@ -44,11 +44,14 @@ impl HistoryCollector {
         let lines: Vec<String> = content
             .lines()
             .filter(|line| !line.is_empty())
-            .filter(|line| !line.starts_with(':')) // Skip zsh extended history metadata
             .map(|line| {
-                // Handle zsh extended history format: ": timestamp:0;command"
-                if let Some(idx) = line.find(';') {
-                    line[idx + 1..].to_string()
+                // Handle zsh extended history format: ": timestamp:duration;command"
+                if line.starts_with(": ") {
+                    if let Some(idx) = line.find(';') {
+                        line[idx + 1..].to_string()
+                    } else {
+                        line.to_string()
+                    }
                 } else {
                     line.to_string()
                 }
@@ -68,5 +71,35 @@ mod tests {
         if let Some(idx) = line.find(';') {
             assert_eq!(&line[idx + 1..], "git status");
         }
+    }
+
+    #[test]
+    fn parse_zsh_extended_history_preserves_commands() {
+        // Simulate what the collect() logic does for extended history lines
+        let lines = [
+            ": 1700000001:0;ls -la",
+            ": 1700000002:0;git commit -m \"fix\"",
+            "plain command",
+            "",
+        ];
+        let result: Vec<String> = lines
+            .iter()
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                if line.starts_with(": ") {
+                    if let Some(idx) = line.find(';') {
+                        line[idx + 1..].to_string()
+                    } else {
+                        line.to_string()
+                    }
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "ls -la");
+        assert_eq!(result[1], "git commit -m \"fix\"");
+        assert_eq!(result[2], "plain command");
     }
 }

@@ -101,8 +101,10 @@ async fn handle_connection(
                     writer.write_all(b"\n").await?;
                     writer.flush().await?;
 
-                    // Clean up and exit
+                    // Clean up socket and PID files, then exit
                     info!("Shutting down");
+                    let socket_path = handler.socket_path();
+                    let _ = std::fs::remove_file(socket_path);
                     let _ = std::fs::remove_file(Config::pid_path());
                     std::process::exit(0);
                 }

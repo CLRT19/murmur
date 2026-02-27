@@ -137,6 +137,7 @@ async fn cmd_stop() -> Result<()> {
                         libc::kill(pid, libc::SIGTERM);
                     }
                     let _ = std::fs::remove_file(Config::pid_path());
+                    let _ = std::fs::remove_file(&config.daemon.socket_path);
                     println!("Murmur daemon stopped (via signal).");
                 }
             }

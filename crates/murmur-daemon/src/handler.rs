@@ -174,6 +174,11 @@ impl RequestHandler {
         }
     }
 
+    /// Get the configured socket path (for cleanup on shutdown).
+    pub fn socket_path(&self) -> &str {
+        &self.config.daemon.socket_path
+    }
+
     /// Process a JSON-RPC request and return a response.
     pub async fn handle(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         debug!(method = %request.method, "Handling request");

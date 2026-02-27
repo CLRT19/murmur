@@ -35,12 +35,12 @@ if command -v socat &>/dev/null; then
 elif command -v nc &>/dev/null; then
     RESPONSE=$(echo "$REQUEST" | nc -U "$SOCKET" 2>/dev/null)
 else
-    RESPONSE=$(python3 -c "
-import socket, json
+    RESPONSE=$(MURMUR_REQ="$REQUEST" MURMUR_SOCK="$SOCKET" python3 -c "
+import socket, os
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 try:
-    s.connect('$SOCKET')
-    s.send(b'$REQUEST\n')
+    s.connect(os.environ['MURMUR_SOCK'])
+    s.send((os.environ['MURMUR_REQ'] + '\n').encode())
     data = s.recv(4096).decode()
     s.close()
     print(data)

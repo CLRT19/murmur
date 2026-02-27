@@ -25,14 +25,17 @@ function _murmur_request
     else if command -v nc &>/dev/null
         echo $request | timeout $MURMUR_TIMEOUT nc -U $MURMUR_SOCKET 2>/dev/null
     else
-        # Python3 fallback
+        # Python3 fallback — pass request via env var to avoid injection
+        set -x MURMUR_REQ $request
+        set -x MURMUR_SOCK $MURMUR_SOCKET
+        set -x MURMUR_TMO $MURMUR_TIMEOUT
         python3 -c "
-import socket
+import socket, os
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.settimeout($MURMUR_TIMEOUT)
+sock.settimeout(float(os.environ.get('MURMUR_TMO', '5')))
 try:
-    sock.connect('$MURMUR_SOCKET')
-    sock.sendall(b'$request\n')
+    sock.connect(os.environ['MURMUR_SOCK'])
+    sock.sendall((os.environ['MURMUR_REQ'] + '\n').encode())
     data = b''
     while True:
         chunk = sock.recv(4096)
@@ -47,6 +50,9 @@ except:
 finally:
     sock.close()
 " 2>/dev/null
+        set -e MURMUR_REQ
+        set -e MURMUR_SOCK
+        set -e MURMUR_TMO
     end
 end
 
@@ -66,9 +72,9 @@ function _murmur_trigger
         return
     end
 
-    # Escape for JSON
-    set -l escaped_input (echo $input | string replace -a '\\' '\\\\' | string replace -a '"' '\\"')
-    set -l escaped_cwd (echo $cwd | string replace -a '\\' '\\\\' | string replace -a '"' '\\"')
+    # Escape for JSON (using python3 for correct handling of all special chars)
+    set -l escaped_input (printf '%s' $input | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])" 2>/dev/null)
+    set -l escaped_cwd (printf '%s' $cwd | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])" 2>/dev/null)
 
     set -l params "{\"input\":\"$escaped_input\",\"cursor_pos\":$cursor,\"cwd\":\"$escaped_cwd\",\"shell\":\"fish\"}"
 

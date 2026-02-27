@@ -34,14 +34,14 @@ _murmur_request() {
     elif command -v nc &>/dev/null; then
         echo "$request" | timeout "$MURMUR_TIMEOUT" nc -U "$MURMUR_SOCKET" 2>/dev/null
     else
-        # Python3 fallback — works everywhere
-        python3 -c "
-import socket, sys, json
+        # Python3 fallback — pass request via env var to avoid injection
+        MURMUR_REQ="$request" MURMUR_SOCK="$MURMUR_SOCKET" MURMUR_TMO="$MURMUR_TIMEOUT" python3 -c "
+import socket, os
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.settimeout($MURMUR_TIMEOUT)
+sock.settimeout(float(os.environ.get('MURMUR_TMO', '5')))
 try:
-    sock.connect('$MURMUR_SOCKET')
-    sock.sendall(b'$request\n')
+    sock.connect(os.environ['MURMUR_SOCK'])
+    sock.sendall((os.environ['MURMUR_REQ'] + '\n').encode())
     data = b''
     while True:
         chunk = sock.recv(4096)
@@ -79,10 +79,10 @@ _murmur_complete() {
         return
     fi
 
-    # Build JSON params (escape special characters properly)
+    # Build JSON params (escape special characters for JSON)
     local escaped_input escaped_cwd
-    escaped_input=$(printf '%s' "$input" | sed 's/\\/\\\\/g; s/"/\\"/g')
-    escaped_cwd=$(printf '%s' "$cwd" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    escaped_input=$(printf '%s' "$input" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])" 2>/dev/null)
+    escaped_cwd=$(printf '%s' "$cwd" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read())[1:-1])" 2>/dev/null)
 
     local params
     params="{\"input\":\"$escaped_input\",\"cursor_pos\":$cursor,\"cwd\":\"$escaped_cwd\",\"shell\":\"zsh\"}"
@@ -132,8 +132,21 @@ except:
         CURSOR=${#BUFFER}
         zle redisplay
     else
-        # Multiple completions — show menu
-        compadd -V murmur -d descriptions -a items
+        # Multiple completions — display as numbered list and insert the first
+        local display=""
+        local i
+        for (( i=1; i<=${#items[@]}; i++ )); do
+            display+="  $i) ${items[$i]}"
+            if [[ -n "${descriptions[$i]}" ]]; then
+                display+="  — ${descriptions[$i]}"
+            fi
+            display+=$'\n'
+        done
+        zle -M "$display"
+        # Insert the top suggestion
+        BUFFER="${items[1]}"
+        CURSOR=${#BUFFER}
+        zle redisplay
     fi
 }
 

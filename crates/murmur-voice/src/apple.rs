@@ -1,7 +1,10 @@
 use async_trait::async_trait;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{debug, warn};
 
 use crate::{encode_wav, SttEngine, SttResult, VoiceError};
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Apple Speech framework STT engine (macOS only).
 ///
@@ -77,9 +80,10 @@ impl SttEngine for AppleEngine {
             )
         })?;
 
-        // Write audio data to a temp file
+        // Write audio data to a temp file (unique per concurrent call)
         let tmp_dir = std::env::temp_dir();
-        let tmp_path = tmp_dir.join(format!("murmur-stt-{}.wav", std::process::id()));
+        let counter = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp_path = tmp_dir.join(format!("murmur-stt-{}-{}.wav", std::process::id(), counter));
         let tmp_path_str = tmp_path.to_string_lossy().to_string();
 
         // If the data doesn't start with RIFF header, encode it as WAV
@@ -105,11 +109,13 @@ impl SttEngine for AppleEngine {
             .arg("--language")
             .arg(&self.language)
             .output()
-            .await
-            .map_err(|e| VoiceError::SttError(format!("Failed to run Apple STT helper: {e}")))?;
+            .await;
 
-        // Clean up temp file
+        // Always clean up temp file, even on error
         let _ = std::fs::remove_file(&tmp_path);
+
+        let output = output
+            .map_err(|e| VoiceError::SttError(format!("Failed to run Apple STT helper: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
