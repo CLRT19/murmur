@@ -38,6 +38,8 @@ enum Commands {
         /// Shell to generate setup for (zsh, bash, fish)
         shell: String,
     },
+    /// Run diagnostic checks
+    Doctor,
 }
 
 #[tokio::main]
@@ -49,6 +51,7 @@ async fn main() -> Result<()> {
         Commands::Stop => cmd_stop().await,
         Commands::Status => cmd_status().await,
         Commands::Setup { shell } => cmd_setup(&shell),
+        Commands::Doctor => cmd_doctor().await,
     }
 }
 
@@ -160,6 +163,139 @@ fn cmd_setup(shell: &str) -> Result<()> {
             anyhow::bail!("Unsupported shell: {other}. Supported: zsh, bash, fish");
         }
     }
+    Ok(())
+}
+
+async fn cmd_doctor() -> Result<()> {
+    println!("Murmur Doctor");
+    println!("=============\n");
+
+    let mut all_ok = true;
+
+    // 1. Check config file
+    let config_path = Config::config_path();
+    if config_path.exists() {
+        match Config::load() {
+            Ok(config) => {
+                println!("[OK] Config file: {}", config_path.display());
+
+                // Check providers
+                if config.providers.is_empty() {
+                    println!("[WARN] No providers configured in config.toml");
+                    println!("       Add at least one provider (e.g., [providers.anthropic])");
+                    all_ok = false;
+                } else {
+                    for (name, provider_cfg) in &config.providers {
+                        if !provider_cfg.enabled {
+                            println!("[SKIP] Provider '{name}': disabled");
+                            continue;
+                        }
+                        if provider_cfg.api_key.is_none() && name != "ollama" {
+                            println!("[WARN] Provider '{name}': no api_key set");
+                            all_ok = false;
+                        } else {
+                            println!("[OK] Provider '{name}': configured");
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[FAIL] Config file parse error: {e}");
+                all_ok = false;
+            }
+        }
+    } else {
+        println!("[WARN] Config file not found: {}", config_path.display());
+        println!(
+            "       Copy config.example.toml to {}",
+            config_path.display()
+        );
+        all_ok = false;
+    }
+
+    println!();
+
+    // 2. Check daemon
+    if is_daemon_running() {
+        println!("[OK] Daemon is running");
+
+        let config = Config::load().unwrap_or_default();
+        if let Ok(response) = send_request(&config.daemon.socket_path, methods::STATUS, None).await
+        {
+            if let Some(result) = response.result {
+                let active: Vec<String> = result["providers_active"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if active.is_empty() {
+                    println!("[WARN] No active providers (completions will be empty)");
+                    all_ok = false;
+                } else {
+                    println!("[OK] Active providers: {}", active.join(", "));
+                }
+
+                let cache = result["cache_entries"].as_u64().unwrap_or(0);
+                println!("[INFO] Cache entries: {cache}");
+            }
+        }
+    } else {
+        println!("[WARN] Daemon is not running");
+        println!("       Run: murmur start");
+        all_ok = false;
+    }
+
+    println!();
+
+    // 3. Check shell integration
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let shell_name = shell.rsplit('/').next().unwrap_or("unknown");
+    println!("[INFO] Current shell: {shell_name}");
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let rc_file = match shell_name {
+        "zsh" => format!("{home}/.zshrc"),
+        "bash" => format!("{home}/.bashrc"),
+        "fish" => format!("{home}/.config/fish/config.fish"),
+        _ => String::new(),
+    };
+
+    if !rc_file.is_empty() {
+        if let Ok(content) = std::fs::read_to_string(&rc_file) {
+            if content.contains("murmur") {
+                println!("[OK] Shell integration found in {rc_file}");
+            } else {
+                println!("[WARN] Shell integration not found in {rc_file}");
+                println!("       Add: eval \"$(murmur setup {shell_name})\"");
+                all_ok = false;
+            }
+        }
+    }
+
+    println!();
+
+    // 4. Check socket connectivity
+    let socket_path = Config::load()
+        .map(|c| c.daemon.socket_path)
+        .unwrap_or_else(|_| "/tmp/murmur.sock".to_string());
+    if std::path::Path::new(&socket_path).exists() {
+        println!("[OK] Socket exists: {socket_path}");
+    } else {
+        println!("[INFO] Socket not found: {socket_path} (daemon not running)");
+    }
+
+    println!();
+
+    // Summary
+    if all_ok {
+        println!("All checks passed! Murmur is ready to use.");
+    } else {
+        println!("Some checks need attention. See warnings above.");
+    }
+
     Ok(())
 }
 
