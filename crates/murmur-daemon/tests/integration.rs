@@ -159,6 +159,47 @@ async fn test_complete_missing_params() {
 }
 
 #[tokio::test]
+async fn test_prefetch_populates_cache() {
+    let socket = format!("/tmp/murmur-test-prefetch-{}.sock", std::process::id());
+    let config = test_config(&socket);
+
+    start_test_server(config).await;
+
+    // Request completion for "git c" — should trigger pre-fetch for "git commit", etc.
+    let params = serde_json::json!({
+        "input": "git c",
+        "cursor_pos": 5,
+        "cwd": "/tmp",
+        "shell": "zsh"
+    });
+
+    let response = send_request(&socket, methods::COMPLETE, Some(params)).await;
+    assert!(response.error.is_none());
+    assert_eq!(response.result.as_ref().unwrap()["cached"], false);
+
+    // Wait for pre-fetch to complete
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // "git commit" should now be in cache (pre-fetched)
+    let params2 = serde_json::json!({
+        "input": "git commit",
+        "cursor_pos": 10,
+        "cwd": "/tmp",
+        "shell": "zsh"
+    });
+    let response2 = send_request(&socket, methods::COMPLETE, Some(params2)).await;
+    assert!(response2.error.is_none());
+    assert_eq!(
+        response2.result.as_ref().unwrap()["cached"],
+        true,
+        "Pre-fetched 'git commit' should be a cache hit"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&socket);
+}
+
+#[tokio::test]
 async fn test_multiple_requests_same_connection() {
     let socket = format!("/tmp/murmur-test-multi-{}.sock", std::process::id());
     let config = test_config(&socket);
