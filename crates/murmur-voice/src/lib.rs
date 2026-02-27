@@ -54,11 +54,13 @@ impl VoiceEngine {
     }
 
     fn detect_engines(&self) -> Vec<String> {
-        let mut engines = vec!["whisper".to_string()];
-
         #[cfg(target_os = "macos")]
-        engines.push("apple".to_string());
-
-        engines
+        {
+            vec!["whisper".to_string(), "apple".to_string()]
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            vec!["whisper".to_string()]
+        }
     }
 }
