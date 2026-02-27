@@ -3,4 +3,5 @@
 pub mod cache;
 pub mod config;
 pub mod handler;
+pub mod prefetch;
 pub mod server;

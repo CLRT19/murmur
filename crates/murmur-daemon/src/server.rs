@@ -1,14 +1,15 @@
 use anyhow::Result;
-use murmur_protocol::JsonRpcRequest;
+use murmur_protocol::{CompletionRequest, JsonRpcRequest, RequestId};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::cache::CompletionCache;
 use crate::config::Config;
 use crate::handler::RequestHandler;
+use crate::prefetch;
 
 /// The main daemon server.
 pub struct Server {
@@ -78,6 +79,18 @@ async fn handle_connection(
         let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
             Ok(request) => {
                 let is_shutdown = request.method == murmur_protocol::methods::SHUTDOWN;
+                let is_complete = request.method == murmur_protocol::methods::COMPLETE;
+
+                // Extract params for pre-fetching before handling consumes them
+                let prefetch_params = if is_complete {
+                    request
+                        .params
+                        .as_ref()
+                        .and_then(|p| serde_json::from_value::<CompletionRequest>(p.clone()).ok())
+                } else {
+                    None
+                };
+
                 let response = handler.handle(request).await;
 
                 if is_shutdown {
@@ -90,6 +103,14 @@ async fn handle_connection(
                     info!("Shutting down");
                     let _ = std::fs::remove_file(Config::pid_path());
                     std::process::exit(0);
+                }
+
+                // Spawn speculative pre-fetch for predicted next inputs
+                if let Some(params) = prefetch_params {
+                    let handler = handler.clone();
+                    tokio::spawn(async move {
+                        prefetch_completions(&handler, &params).await;
+                    });
                 }
 
                 response
@@ -113,6 +134,40 @@ async fn handle_connection(
     }
 
     Ok(())
+}
+
+/// Speculatively pre-fetch completions for predicted next inputs.
+/// This runs in the background after a completion request is served.
+async fn prefetch_completions(handler: &RequestHandler, original: &CompletionRequest) {
+    let predictions = prefetch::predict_next_inputs(&original.input);
+    if predictions.is_empty() {
+        return;
+    }
+
+    debug!(
+        count = predictions.len(),
+        input = %original.input,
+        "Pre-fetching predicted completions"
+    );
+
+    for predicted_input in predictions {
+        // Build a synthetic request for the predicted input
+        let request = JsonRpcRequest::new(
+            murmur_protocol::methods::COMPLETE,
+            Some(serde_json::to_value(&CompletionRequest {
+                input: predicted_input.clone(),
+                cursor_pos: predicted_input.len(),
+                cwd: original.cwd.clone(),
+                history: original.history.clone(),
+                shell: original.shell.clone(),
+            }).unwrap()),
+            RequestId::Number(0), // internal request, ID doesn't matter
+        );
+
+        // This will populate the cache for the predicted input
+        let _ = handler.handle(request).await;
+        debug!(input = %predicted_input, "Pre-fetched completion");
+    }
 }
 
 /// Initialize tracing subscriber.
