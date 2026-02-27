@@ -2,13 +2,16 @@
 //!
 //! This crate provides:
 //! - STT engine abstraction (`SttEngine` trait)
+//! - Apple Speech framework integration (macOS, via Swift helper)
 //! - Deepgram cloud STT integration
 //! - Voice restructuring pipeline (transcript → LLM → command/prose)
 //! - Audio utilities for WAV encoding
 
+mod apple;
 mod deepgram;
 mod restructure;
 
+pub use apple::AppleEngine;
 pub use deepgram::DeepgramEngine;
 pub use restructure::VoiceRestructurer;
 
@@ -103,10 +106,16 @@ impl VoiceEngine {
             engines.push(Box::new(engine));
         }
 
-        // Detect platform-specific engines
+        // Apple Speech engine (macOS only, via swift helper)
         #[cfg(target_os = "macos")]
         {
-            debug!("macOS detected — Apple SpeechAnalyzer available via swift-helpers");
+            let apple = AppleEngine::new(config.language.clone());
+            if apple.is_available() {
+                info!("Apple Speech STT engine initialized");
+                engines.push(Box::new(apple));
+            } else {
+                debug!("Apple STT helper not found — run swift-helpers/build.sh to enable");
+            }
         }
 
         Self {
