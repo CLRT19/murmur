@@ -172,7 +172,9 @@ impl RequestHandler {
                         voice.set_restructurer(Restructurer::Api(restructurer));
                         info!("Voice restructurer initialized with Anthropic API backend");
                     } else {
-                        warn!("Voice restructurer set to 'api' but no Anthropic API key configured");
+                        warn!(
+                            "Voice restructurer set to 'api' but no Anthropic API key configured"
+                        );
                     }
                 } else {
                     warn!("Voice restructurer set to 'api' but Anthropic provider not configured");
