@@ -23,3 +23,6 @@ config.toml
 *.pid
 *.sock
 *.log
+
+# Swift helper build output
+swift-helpers/murmur-transcribe

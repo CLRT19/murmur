@@ -179,7 +179,7 @@ murmur/
 
 - [x] Phase 1: Foundation + MVP autocomplete (zsh + Claude Haiku)
 - [x] Phase 2: Multi-provider with failover, Codestral, pre-fetching, improved routing
-- [ ] Phase 3: Voice input (Whisper + Apple SpeechAnalyzer)
+- [x] Phase 3: Voice input (Deepgram, Apple Speech, LLM restructuring, CLI commands)
 - [ ] Phase 4: Claude Code + Codex CLI integration
 - [ ] Phase 5: Polish + distribution (Homebrew, AUR)
 
