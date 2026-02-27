@@ -1,8 +1,11 @@
+use murmur_providers::{
+    AnthropicProvider, OllamaProvider, Provider, ProviderRouter, RouteDecision,
+};
 use murmur_protocol::*;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::cache::CompletionCache;
 use crate::config::Config;
@@ -11,11 +14,91 @@ use crate::config::Config;
 pub struct RequestHandler {
     config: Arc<Config>,
     cache: Arc<Mutex<CompletionCache>>,
+    providers: Providers,
+}
+
+/// Holds initialized provider instances.
+struct Providers {
+    anthropic: Option<AnthropicProvider>,
+    ollama: Option<OllamaProvider>,
+}
+
+impl Providers {
+    fn from_config(config: &Config) -> Self {
+        let anthropic = config
+            .providers
+            .get("anthropic")
+            .filter(|c| c.enabled)
+            .and_then(|c| match AnthropicProvider::new(c) {
+                Ok(p) => {
+                    info!("Anthropic provider initialized");
+                    Some(p)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to initialize Anthropic provider");
+                    None
+                }
+            });
+
+        let ollama = config
+            .providers
+            .get("ollama")
+            .filter(|c| c.enabled)
+            .and_then(|c| match OllamaProvider::new(c) {
+                Ok(p) => {
+                    info!("Ollama provider initialized");
+                    Some(p)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to initialize Ollama provider");
+                    None
+                }
+            });
+
+        Self { anthropic, ollama }
+    }
+
+    /// Get a provider for the given route decision, with fallback.
+    fn get(&self, decision: &RouteDecision) -> Option<&dyn Provider> {
+        match decision {
+            RouteDecision::Shell => self
+                .anthropic
+                .as_ref()
+                .map(|p| p as &dyn Provider)
+                .or(self.ollama.as_ref().map(|p| p as &dyn Provider)),
+            RouteDecision::Code => self
+                .anthropic
+                .as_ref()
+                .map(|p| p as &dyn Provider)
+                .or(self.ollama.as_ref().map(|p| p as &dyn Provider)),
+            RouteDecision::Local => self
+                .ollama
+                .as_ref()
+                .map(|p| p as &dyn Provider)
+                .or(self.anthropic.as_ref().map(|p| p as &dyn Provider)),
+        }
+    }
+
+    fn names(&self) -> Vec<&str> {
+        let mut names = vec![];
+        if self.anthropic.is_some() {
+            names.push("anthropic");
+        }
+        if self.ollama.is_some() {
+            names.push("ollama");
+        }
+        names
+    }
 }
 
 impl RequestHandler {
     pub fn new(config: Arc<Config>, cache: Arc<Mutex<CompletionCache>>) -> Self {
-        Self { config, cache }
+        let providers = Providers::from_config(&config);
+        Self {
+            config,
+            cache,
+            providers,
+        }
     }
 
     /// Process a JSON-RPC request and return a response.
@@ -74,15 +157,42 @@ impl RequestHandler {
 
         // Collect context
         let shell = params.shell.as_deref().unwrap_or("zsh");
-        let _context =
+        let context =
             murmur_context::collect_context(&params.cwd, shell, self.config.context.history_lines)
                 .await;
 
-        // TODO: Route to provider and get completions
-        // For now, return empty completions
+        // Route to provider and get completions
+        let decision = ProviderRouter::route(&params, &context);
+        debug!(route = ?decision, input = %params.input, "Provider routing decision");
+
+        let (items, provider_name) = match self.providers.get(&decision) {
+            Some(provider) => {
+                debug!(provider = provider.name(), "Calling provider");
+                match provider.complete(&params, &context).await {
+                    Ok(items) => {
+                        info!(
+                            provider = provider.name(),
+                            count = items.len(),
+                            latency_ms = start.elapsed().as_millis() as u64,
+                            "Completions received"
+                        );
+                        (items, provider.name().to_string())
+                    }
+                    Err(e) => {
+                        warn!(provider = provider.name(), error = %e, "Provider failed");
+                        (vec![], "none".to_string())
+                    }
+                }
+            }
+            None => {
+                debug!("No providers configured, returning empty completions");
+                (vec![], "none".to_string())
+            }
+        };
+
         let response = CompletionResponse {
-            items: vec![],
-            provider: "none".to_string(),
+            items,
+            provider: provider_name,
             latency_ms: start.elapsed().as_millis() as u64,
             cached: false,
         };
@@ -102,7 +212,8 @@ impl RequestHandler {
             "status": "running",
             "cache_entries": cache_len,
             "voice_enabled": self.config.voice.enabled,
-            "providers": self.config.providers.keys().collect::<Vec<_>>(),
+            "providers_configured": self.config.providers.keys().collect::<Vec<_>>(),
+            "providers_active": self.providers.names(),
         });
         JsonRpcResponse::success(status, request.id)
     }
