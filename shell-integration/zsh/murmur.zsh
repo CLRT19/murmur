@@ -4,6 +4,12 @@
 # Socket path (matches daemon config)
 MURMUR_SOCKET="${MURMUR_SOCKET:-/tmp/murmur.sock}"
 
+# Debounce delay in seconds (completions wait this long after last keystroke)
+MURMUR_DEBOUNCE="${MURMUR_DEBOUNCE:-0.3}"
+
+# Request timeout in seconds
+MURMUR_TIMEOUT="${MURMUR_TIMEOUT:-5}"
+
 # Check if daemon is running
 _murmur_is_running() {
     [[ -S "$MURMUR_SOCKET" ]]
@@ -22,13 +28,40 @@ _murmur_request() {
         request="{\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":null,\"id\":$id}"
     fi
 
-    # Send request via socat (available on most systems) or nc
+    # Send request via socat (preferred), nc, or python3 (fallback)
     if command -v socat &>/dev/null; then
-        echo "$request" | socat - UNIX-CONNECT:"$MURMUR_SOCKET" 2>/dev/null
+        echo "$request" | timeout "$MURMUR_TIMEOUT" socat - UNIX-CONNECT:"$MURMUR_SOCKET" 2>/dev/null
     elif command -v nc &>/dev/null; then
-        echo "$request" | nc -U "$MURMUR_SOCKET" 2>/dev/null
+        echo "$request" | timeout "$MURMUR_TIMEOUT" nc -U "$MURMUR_SOCKET" 2>/dev/null
+    else
+        # Python3 fallback — works everywhere
+        python3 -c "
+import socket, sys, json
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.settimeout($MURMUR_TIMEOUT)
+try:
+    sock.connect('$MURMUR_SOCKET')
+    sock.sendall(b'$request\n')
+    data = b''
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+        if b'\n' in data:
+            break
+    print(data.decode().strip())
+except:
+    pass
+finally:
+    sock.close()
+" 2>/dev/null
     fi
 }
+
+# Debouncing state
+typeset -g _MURMUR_DEBOUNCE_PID=""
+typeset -g _MURMUR_LAST_INPUT=""
 
 # ZLE widget: AI-powered completion
 _murmur_complete() {
@@ -42,12 +75,19 @@ _murmur_complete() {
     local cursor="$CURSOR"
     local cwd="$PWD"
 
-    # Build JSON params
+    # Skip if input is empty or only whitespace
+    if [[ -z "${input// /}" ]]; then
+        zle expand-or-complete
+        return
+    fi
+
+    # Build JSON params (escape special characters properly)
+    local escaped_input escaped_cwd
+    escaped_input=$(printf '%s' "$input" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    escaped_cwd=$(printf '%s' "$cwd" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
     local params
-    params=$(printf '{"input":"%s","cursor_pos":%d,"cwd":"%s","shell":"zsh"}' \
-        "$(echo "$input" | sed 's/"/\\"/g')" \
-        "$cursor" \
-        "$(echo "$cwd" | sed 's/"/\\"/g')")
+    params="{\"input\":\"$escaped_input\",\"cursor_pos\":$cursor,\"cwd\":\"$escaped_cwd\",\"shell\":\"zsh\"}"
 
     # Request completions from daemon
     local response
@@ -64,7 +104,9 @@ _murmur_complete() {
 import sys, json
 try:
     data = json.load(sys.stdin)
-    if 'result' in data and 'items' in data['result']:
+    if 'error' in data and data['error']:
+        pass
+    elif 'result' in data and 'items' in data['result']:
         for item in data['result']['items']:
             desc = item.get('description', '')
             print(f\"{item['text']}\t{desc}\")
@@ -84,6 +126,11 @@ except:
         descriptions+=("$desc")
     done <<< "$completions"
 
+    if (( ${#items[@]} == 0 )); then
+        zle expand-or-complete
+        return
+    fi
+
     if (( ${#items[@]} == 1 )); then
         # Single completion — insert directly
         BUFFER="${items[1]}"
@@ -101,5 +148,5 @@ zle -N _murmur_complete
 # Bind to Tab (keeping original as fallback)
 bindkey '^I' _murmur_complete
 
-# Optional: Bind AI completion to a specific key combo (e.g., Ctrl+Space)
+# Optional: Bind AI completion to Ctrl+Space (uncomment to enable)
 # bindkey '^ ' _murmur_complete
