@@ -12,10 +12,11 @@ Murmur is a terminal productivity tool that brings AI-powered completions and vo
 - **Voice Input** — Speak commands naturally; Murmur transcribes and converts them to shell commands or prose
 - **Multi-Shell Support** — Native integration with zsh, bash, and fish
 - **Multi-LLM Routing** — Automatically picks the right model for the task (Codestral for code, Haiku for shell commands)
-- **Rich Context** — Uses shell history, git state, project type, environment variables, and man pages for better suggestions
-- **AI Tool Integration** — Native plugins for Claude Code and Codex CLI
+- **Rich Context** — Uses shell history, git state, project type, environment variables for better suggestions
+- **AI Tool Integration** — Native plugins for Claude Code and Codex CLI via hooks and MCP
+- **Cross-Tool History** — Commands from terminals, Claude Code, and Codex flow into a shared history for smarter completions
 - **Fast** — Sub-200ms end-to-end latency with LRU caching, speculative pre-fetching, and smart debouncing
-- **Private** — On-device speech-to-text (Apple SpeechAnalyzer / Whisper), no audio leaves your machine
+- **Private** — On-device speech-to-text (Apple Speech / Whisper), no audio leaves your machine
 
 ## Architecture
 
@@ -44,7 +45,7 @@ Shell plugins are ultra-thin scripts. All intelligence lives in the daemon.
 | Shell autocomplete | Claude Haiku 4.5 | Ollama (local) |
 | Code completion (FIM) | Codestral 25.01 | DeepSeek-Coder-V2-Lite (local) |
 | Voice restructuring | Claude Haiku 4.5 | GPT-4o-mini |
-| Speech-to-text | Apple SpeechAnalyzer (macOS) / Whisper | Deepgram (cloud) |
+| Speech-to-text | Apple Speech (macOS) / Whisper | Deepgram (cloud) |
 
 ## Installation
 
@@ -80,10 +81,9 @@ eval "$(murmur setup zsh)"
 3. **Configure your API key:**
 
 ```bash
-# ~/.config/murmur/config.toml
-[providers.anthropic]
-api_key = "sk-ant-..."
-model = "claude-haiku-4-5-20251001"
+mkdir -p ~/.config/murmur
+cp config.example.toml ~/.config/murmur/config.toml
+# Edit the file and set your API key
 ```
 
 4. **Start typing** — press Tab for AI-powered suggestions.
@@ -91,8 +91,8 @@ model = "claude-haiku-4-5-20251001"
 5. **Voice input** (optional):
 
 ```bash
-# Hold the hotkey (default: Ctrl+Shift+V) and speak
-murmur voice test  # Verify microphone works
+murmur voice test --file recording.wav   # Process a WAV file
+murmur voice status                       # Check voice engine status
 ```
 
 ## Configuration
@@ -122,9 +122,11 @@ enabled = false  # Enable for offline fallback
 
 [voice]
 enabled = false
-engine = "whisper"  # or "apple" on macOS
+engine = "whisper"  # "whisper", "apple" (macOS), or "deepgram" (cloud)
 hotkey = "ctrl+shift+v"
 language = "en"
+confidence_threshold = 0.5
+# deepgram_api_key = "your-key"  # Required for Deepgram cloud STT
 
 [context]
 history_lines = 500
@@ -140,17 +142,105 @@ project_detection = true
 | bash | Supported | Readline binding |
 | fish | Supported | Fish completions |
 
-## Claude Code Integration
+## AI Tool Integration
 
-Murmur can learn from your Claude Code sessions:
+Murmur integrates with AI coding assistants to share context bi-directionally. Commands executed by AI tools are recorded in Murmur's cross-tool history, which improves future completions.
+
+### Codex CLI
+
+Codex CLI connects to Murmur via an **MCP server** that exposes Murmur's tools.
+
+**1. Install the MCP server:**
+
+```bash
+cargo install --path integrations/codex/mcp-server
+```
+
+**2. Register with Codex CLI** — add to `~/.codex/config.toml`:
 
 ```toml
-# ~/.claude/settings.json hooks
-[hooks.PreToolUse]
-command = "murmur hook pre-tool"
+[mcp_servers.murmur]
+command = "murmur-mcp"
+enabled = true
+```
 
-[hooks.PostToolUse]
-command = "murmur hook post-tool"
+This gives Codex access to these tools:
+- `murmur_complete` — Get AI-powered shell completions
+- `murmur_status` — Check daemon status and providers
+- `murmur_record_command` — Record command executions
+- `murmur_get_history` — Query cross-tool command history
+
+**3. (Optional) Enable notify script** — records Codex agent commands into Murmur's history:
+
+```toml
+# Add to ~/.codex/config.toml
+notify = ["/path/to/murmur/integrations/codex/notify/murmur-notify.py"]
+```
+
+### Claude Code
+
+Claude Code connects to Murmur via **hooks** that fire on tool use events, and optionally via the same MCP server.
+
+**Option A — Hooks (records commands from Claude Code sessions):**
+
+Add to `.claude/settings.json` or `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/murmur/integrations/claude-code/hooks/murmur-learn.sh",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Option B — MCP server (gives Claude Code access to Murmur tools):**
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "murmur": {
+      "command": "murmur-mcp"
+    }
+  }
+}
+```
+
+### Cross-Tool History
+
+When either integration is active, Murmur builds a unified command history across all tools:
+
+```bash
+murmur status   # Shows history_entries count
+```
+
+The daemon exposes two JSON-RPC methods for this:
+- `context/update` — Record a command (used by hooks and MCP tools)
+- `history/list` — Query history with optional cwd filter
+
+## CLI Commands
+
+```bash
+murmur start [--foreground] [--config path]   # Start the daemon
+murmur stop                                    # Stop the daemon
+murmur status                                  # Show daemon status
+murmur setup <shell>                           # Print shell integration script
+murmur doctor                                  # Run diagnostic checks
+murmur voice test [--file <wav>] [--mode cmd]  # Test voice input
+murmur voice status                            # Show voice engine status
 ```
 
 ## Project Structure
@@ -159,20 +249,26 @@ command = "murmur hook post-tool"
 murmur/
 ├── Cargo.toml                       # Workspace root
 ├── crates/
-│   ├── murmur-daemon/               # Core daemon
+│   ├── murmur-daemon/               # Core daemon (server, cache, routing)
 │   ├── murmur-cli/                  # CLI interface
-│   ├── murmur-context/              # Context collection
-│   ├── murmur-providers/            # LLM provider abstraction
-│   ├── murmur-voice/                # Voice input engine
+│   ├── murmur-context/              # Context collection (history, git, env)
+│   ├── murmur-providers/            # LLM providers (Anthropic, Codestral, Ollama)
+│   ├── murmur-voice/                # Voice engine (STT, restructuring)
 │   └── murmur-protocol/             # Shared JSON-RPC types
 ├── shell-integration/
 │   ├── zsh/murmur.zsh
 │   ├── bash/murmur.bash
 │   └── fish/murmur.fish
 ├── integrations/
-│   ├── claude-code/
-│   └── codex/mcp-server/
-└── swift-helpers/                   # macOS SpeechAnalyzer wrapper
+│   ├── claude-code/                 # Claude Code hooks
+│   │   ├── hooks/murmur-learn.sh    # PostToolUse → records commands
+│   │   ├── hooks/murmur-context.sh  # Injects Murmur status as context
+│   │   └── settings.example.json
+│   └── codex/                       # Codex CLI integration
+│       ├── mcp-server/              # MCP server binary (murmur-mcp)
+│       ├── notify/murmur-notify.py  # Notify script → records commands
+│       └── config.example.toml
+└── swift-helpers/                   # macOS Apple Speech STT wrapper
 ```
 
 ## Roadmap

@@ -1,0 +1,18 @@
+# Codex CLI — Murmur MCP Server Configuration
+#
+# Add this to your ~/.codex/config.toml to register Murmur as an MCP server.
+# Codex will automatically discover Murmur's tools (complete, status, history).
+#
+# Prerequisites:
+#   1. Build the MCP server: cargo install --path integrations/codex/mcp-server
+#   2. Start the Murmur daemon: murmur start
+#   3. Add this config section to ~/.codex/config.toml
+
+[mcp_servers.murmur]
+command = "murmur-mcp"
+# If not in PATH, use the full path:
+# command = "/path/to/murmur/target/release/murmur-mcp"
+args = []
+enabled = true
+startup_timeout_sec = 5
+tool_timeout_sec = 30

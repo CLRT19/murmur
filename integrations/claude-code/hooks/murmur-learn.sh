@@ -75,6 +75,7 @@ s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 try:
     s.connect('$SOCKET')
     s.send(b'$REQUEST\n')
+    s.recv(4096)
     s.close()
 except:
     pass
