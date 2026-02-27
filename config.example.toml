@@ -1,0 +1,36 @@
+# Murmur Configuration
+# Copy to ~/.config/murmur/config.toml
+
+[daemon]
+socket_path = "/tmp/murmur.sock"
+cache_size = 1000
+log_level = "info"
+
+[providers.anthropic]
+api_key = "sk-ant-your-key-here"
+model = "claude-haiku-4-5-20251001"
+enabled = true
+timeout_ms = 5000
+
+# [providers.codestral]
+# api_key = "your-codestral-key"
+# model = "codestral-2501"
+# enabled = true
+# timeout_ms = 5000
+
+# [providers.ollama]
+# endpoint = "http://localhost:11434"
+# model = "codellama:7b"
+# enabled = false
+# timeout_ms = 10000
+
+[voice]
+enabled = false
+engine = "whisper"  # "whisper" or "apple" (macOS only)
+hotkey = "ctrl+shift+v"
+language = "en"
+
+[context]
+history_lines = 500
+git_enabled = true
+project_detection = true

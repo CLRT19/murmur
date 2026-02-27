@@ -1,0 +1,22 @@
+[package]
+name = "murmur-daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core daemon for Murmur (Unix socket server, request routing, cache)"
+
+[dependencies]
+murmur-protocol = { path = "../murmur-protocol" }
+murmur-context = { path = "../murmur-context" }
+murmur-providers = { path = "../murmur-providers" }
+murmur-voice = { path = "../murmur-voice" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+toml = { workspace = true }
+lru = { workspace = true }
