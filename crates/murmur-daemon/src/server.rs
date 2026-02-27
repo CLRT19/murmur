@@ -32,9 +32,21 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         let socket_path = &self.config.daemon.socket_path;
 
-        // Clean up stale socket file
+        // Clean up stale socket file (only if no live daemon is listening)
         if std::path::Path::new(socket_path).exists() {
-            std::fs::remove_file(socket_path)?;
+            // Try connecting to check if a daemon is already running
+            match std::os::unix::net::UnixStream::connect(socket_path) {
+                Ok(_) => {
+                    anyhow::bail!(
+                        "Another Murmur daemon is already running on {}",
+                        socket_path
+                    );
+                }
+                Err(_) => {
+                    // Socket exists but no one is listening — it's stale
+                    std::fs::remove_file(socket_path)?;
+                }
+            }
         }
 
         let listener = UnixListener::bind(socket_path)?;

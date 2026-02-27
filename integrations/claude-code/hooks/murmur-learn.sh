@@ -66,16 +66,29 @@ if [ -z "$REQUEST" ]; then
     exit 0
 fi
 
+# Portable timeout wrapper
+_timeout() {
+    if command -v timeout &>/dev/null; then
+        timeout "$@"
+    elif command -v gtimeout &>/dev/null; then
+        gtimeout "$@"
+    else
+        shift
+        "$@"
+    fi
+}
+
 # Fire-and-forget to Murmur daemon (pass request via env to avoid injection)
 if command -v socat &>/dev/null; then
-    echo "$REQUEST" | socat - UNIX-CONNECT:"$SOCKET" 2>/dev/null &
+    echo "$REQUEST" | _timeout 3 socat - UNIX-CONNECT:"$SOCKET" 2>/dev/null &
 elif command -v nc &>/dev/null; then
-    echo "$REQUEST" | nc -U "$SOCKET" 2>/dev/null &
+    echo "$REQUEST" | _timeout 3 nc -U "$SOCKET" 2>/dev/null &
 else
-    # Python3 fallback — pass request via environment variable
+    # Python3 fallback — pass request via environment variable (has built-in timeout)
     MURMUR_REQ="$REQUEST" MURMUR_SOCK="$SOCKET" python3 -c "
 import socket, os
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(3)
 try:
     s.connect(os.environ['MURMUR_SOCK'])
     s.send((os.environ['MURMUR_REQ'] + '\n').encode())
