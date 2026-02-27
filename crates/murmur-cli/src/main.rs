@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use murmur_daemon::config::Config;
 use murmur_daemon::server::{self, Server};
-use murmur_protocol::{methods, JsonRpcRequest, JsonRpcResponse, RequestId};
+use murmur_protocol::{methods, JsonRpcRequest, JsonRpcResponse, RequestId, VoiceMode};
 use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -40,6 +40,26 @@ enum Commands {
     },
     /// Run diagnostic checks
     Doctor,
+    /// Voice input commands
+    Voice {
+        #[command(subcommand)]
+        action: VoiceAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum VoiceAction {
+    /// Test voice input (process a WAV file or generate test audio)
+    Test {
+        /// Path to a WAV file (16kHz mono 16-bit PCM). If omitted, uses a built-in test.
+        #[arg(long)]
+        file: Option<String>,
+        /// Voice mode: "command" (speech → shell command) or "natural" (speech → clean prose)
+        #[arg(long, default_value = "command")]
+        mode: String,
+    },
+    /// Show voice engine status
+    Status,
 }
 
 #[tokio::main]
@@ -52,6 +72,10 @@ async fn main() -> Result<()> {
         Commands::Status => cmd_status().await,
         Commands::Setup { shell } => cmd_setup(&shell),
         Commands::Doctor => cmd_doctor().await,
+        Commands::Voice { action } => match action {
+            VoiceAction::Test { file, mode } => cmd_voice_test(file, mode).await,
+            VoiceAction::Status => cmd_voice_status().await,
+        },
     }
 }
 
@@ -294,6 +318,142 @@ async fn cmd_doctor() -> Result<()> {
         println!("All checks passed! Murmur is ready to use.");
     } else {
         println!("Some checks need attention. See warnings above.");
+    }
+
+    Ok(())
+}
+
+async fn cmd_voice_test(file: Option<String>, mode: String) -> Result<()> {
+    let voice_mode = match mode.as_str() {
+        "command" => VoiceMode::Command,
+        "natural" => VoiceMode::Natural,
+        other => anyhow::bail!("Unknown voice mode: {other}. Use 'command' or 'natural'."),
+    };
+
+    if !is_daemon_running() {
+        println!("Murmur daemon is not running. Start it with: murmur start");
+        return Ok(());
+    }
+
+    let audio_data = match file {
+        Some(path) => {
+            let data = std::fs::read(&path)
+                .with_context(|| format!("Failed to read audio file: {path}"))?;
+            println!("Loaded audio file: {path} ({} bytes)", data.len());
+            data
+        }
+        None => {
+            // Generate a minimal silent WAV for testing the pipeline
+            println!("No audio file provided. Generating silent test audio...");
+            println!("(For real testing, use: murmur voice test --file recording.wav)");
+            murmur_voice::encode_wav(&vec![0i16; 16000], 16000)?
+        }
+    };
+
+    // Base64 encode the audio
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&audio_data);
+
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| ".".to_string());
+
+    let params = serde_json::json!({
+        "audio_data": encoded,
+        "mode": voice_mode,
+        "cwd": cwd,
+        "shell": std::env::var("SHELL").ok(),
+    });
+
+    println!("Sending audio to daemon for processing (mode: {mode})...");
+
+    let config = Config::load().unwrap_or_default();
+    match send_request(
+        &config.daemon.socket_path,
+        methods::VOICE_PROCESS,
+        Some(params),
+    )
+    .await
+    {
+        Ok(response) => {
+            if let Some(result) = response.result {
+                println!("\nVoice Processing Result:");
+                println!(
+                    "  Transcript: {}",
+                    result["transcript"].as_str().unwrap_or("(none)")
+                );
+                println!(
+                    "  Output:     {}",
+                    result["output"].as_str().unwrap_or("(none)")
+                );
+                println!(
+                    "  Mode:       {}",
+                    result["mode"].as_str().unwrap_or("unknown")
+                );
+                println!(
+                    "  Confidence: {:.1}%",
+                    result["confidence"].as_f64().unwrap_or(0.0) * 100.0
+                );
+                println!(
+                    "  Engine:     {}",
+                    result["engine"].as_str().unwrap_or("unknown")
+                );
+                println!(
+                    "  Latency:    {}ms",
+                    result["latency_ms"].as_u64().unwrap_or(0)
+                );
+            } else if let Some(error) = response.error {
+                println!("Voice processing error: {}", error.message);
+            }
+        }
+        Err(e) => {
+            println!("Failed to communicate with daemon: {e}");
+        }
+    }
+
+    Ok(())
+}
+
+async fn cmd_voice_status() -> Result<()> {
+    if !is_daemon_running() {
+        println!("Murmur daemon is not running. Start it with: murmur start");
+        return Ok(());
+    }
+
+    let config = Config::load().unwrap_or_default();
+    match send_request(&config.daemon.socket_path, methods::VOICE_STATUS, None).await {
+        Ok(response) => {
+            if let Some(result) = response.result {
+                println!("Voice Engine Status:");
+                println!(
+                    "  Capturing:  {}",
+                    result["capturing"].as_bool().unwrap_or(false)
+                );
+                let engines = result["available_engines"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                println!(
+                    "  Engines:    {}",
+                    if engines.is_empty() {
+                        "(none)".to_string()
+                    } else {
+                        engines.join(", ")
+                    }
+                );
+                println!(
+                    "  Active:     {}",
+                    result["active_engine"].as_str().unwrap_or("(none)")
+                );
+            }
+        }
+        Err(e) => {
+            println!("Failed to get voice status: {e}");
+        }
     }
 
     Ok(())

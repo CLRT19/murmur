@@ -51,6 +51,8 @@ pub mod methods {
     pub const COMPLETE: &str = "complete";
     pub const VOICE_START: &str = "voice/start";
     pub const VOICE_STOP: &str = "voice/stop";
+    pub const VOICE_PROCESS: &str = "voice/process";
+    pub const VOICE_STATUS: &str = "voice/status";
     pub const STATUS: &str = "status";
     pub const CONTEXT_UPDATE: &str = "context/update";
     pub const SHUTDOWN: &str = "shutdown";

@@ -22,6 +22,21 @@ pub struct VoiceStartRequest {
     pub shell: Option<String>,
 }
 
+/// Request to process audio data through STT + restructuring.
+/// Audio should be base64-encoded WAV (16kHz mono 16-bit PCM).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceProcessRequest {
+    /// Base64-encoded WAV audio data.
+    pub audio_data: String,
+    /// Which mode to use for restructuring.
+    pub mode: VoiceMode,
+    /// Current working directory (for context).
+    pub cwd: String,
+    /// Shell type.
+    #[serde(default)]
+    pub shell: Option<String>,
+}
+
 /// Response after voice capture and processing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceResult {

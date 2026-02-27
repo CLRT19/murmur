@@ -36,6 +36,12 @@ pub struct VoiceConfig {
     pub hotkey: String,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_confidence")]
+    pub confidence_threshold: f64,
+    #[serde(default = "default_capture_timeout")]
+    pub capture_timeout_ms: u64,
+    #[serde(default)]
+    pub deepgram_api_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,6 +82,14 @@ fn default_history_lines() -> usize {
     500
 }
 
+fn default_confidence() -> f64 {
+    0.5
+}
+
+fn default_capture_timeout() -> u64 {
+    30000
+}
+
 fn default_true() -> bool {
     true
 }
@@ -97,6 +111,9 @@ impl Default for VoiceConfig {
             engine: default_voice_engine(),
             hotkey: default_hotkey(),
             language: default_language(),
+            confidence_threshold: default_confidence(),
+            capture_timeout_ms: default_capture_timeout(),
+            deepgram_api_key: None,
         }
     }
 }
